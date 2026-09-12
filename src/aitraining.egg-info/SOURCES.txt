@@ -1,0 +1,12 @@
+pyproject.toml
+src/main.py
+src/aitraining.egg-info/PKG-INFO
+src/aitraining.egg-info/SOURCES.txt
+src/aitraining.egg-info/dependency_links.txt
+src/aitraining.egg-info/requires.txt
+src/aitraining.egg-info/top_level.txt
+src/llm/__init__.py
+src/llm/factory.py
+src/llm/ollamaclient.py
+src/llm/openaiclient.py
+src/llm/responses.py

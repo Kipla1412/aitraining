@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+env/
+venv/
+.venv/
+# Environment
+.env
+.env.*
+!.env.example
+notepad.txt
+.commandcode
+.pytest_cache
+
+src/__pycache__/
+# OS
+.DS_Store
+Thumbs.db
