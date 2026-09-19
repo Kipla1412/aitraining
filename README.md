@@ -1,12 +1,13 @@
-# Simple OpenAI Chat Client & Agent
+# Simple OpenAI & Gemini Chat Client & Agent
 
-A small, easy-to-read chat stack built on the OpenAI API:
+A small, easy-to-read chat stack for **OpenAI** and **Gemini**:
 
-- **`LLMClient`** — a thin async client for chat completions (streaming and non-streaming, with retries).
+- **`LLMClient` / `GeminiLLMClient`** — thin async clients for chat completions (streaming and non-streaming, with retries).
+- **`ClientFactory`** — pick a provider by name, or from `LLM_PROVIDER`.
 - **`Agent`** — a streaming chat agent that keeps conversation history and emits simple events.
 
-It is intentionally minimal: **no tool calling, no multi-provider framework**. Plain `dict` messages
-(`{"role": ..., "content": ...}`) in, streamed text out.
+It is intentionally minimal: **no tool calling** — no tool registry, no function schemas,
+no execution loop. Plain `dict` messages (`{"role": ..., "content": ...}`) in, streamed text out.
 
 ---
 
@@ -18,11 +19,46 @@ It is intentionally minimal: **no tool calling, no multi-provider framework**. P
 - Small, explicit event model (no hidden magic)
 - Async-first (`asyncio`)
 
+## How it works (the approach)
+
+A thin client talks to the LLM, and a small agent runs the chat loop. Data flows
+one way — no framework, no hidden layers:
+
+```text
+your code
+   │  agent.run("What is the capital of France?")
+   ▼
+Agent              keeps conversation history, streams AgentEvents
+   │  client.chat_completion(messages, stream=True)
+   ▼
+Client             OpenAI or Gemini (same interface), emits StreamEvents
+   │  openai / google-genai SDK
+   ▼
+LLM API
+```
+
+`Agent` never touches the network and never asks which provider it is — it only calls
+`chat_completion(messages, stream=True)`. The client does one job: talk to the API and
+normalize the reply into events.
+
+The design is deliberately small:
+
+- **Plain `dict` messages.** History is a `list[dict]` (`{"role": ..., "content": ...}`),
+  exactly what the OpenAI API expects. No wrapper/`ChatMessage` classes.
+- **One client interface, two providers.** `LLMClient` (OpenAI-compatible) and
+  `GeminiLLMClient` expose the same `chat_completion(messages, stream=True)` and both
+  yield `StreamEvent`s. Pick one with `ClientFactory.create_client("openai" | "gemini")`
+  or the `LLM_PROVIDER` env var — the agent never branches on provider.
+- **No tool calling.** Text in, text out — no tool registry, no function schemas,
+  no execution loop.
+- **Events, not callbacks.** Both layers are async generators yielding small event
+  objects, so you `async for` and branch on `event.type`.
+
 ## Requirements
 
 - Python 3.10+
 - [`uv`](https://docs.astral.sh/uv/) (recommended) or `pip`
-- An OpenAI API key
+- An API key: OpenAI and/or Gemini
 
 > New here? See the step-by-step **[Installation guide](INSTALL.md)**.
 
@@ -36,7 +72,7 @@ uv sync
 cp .env.example .env   # then edit it and add your key
 ```
 
-Minimal `.env`:
+Minimal `.env` (OpenAI):
 
 ```dotenv
 OPENAI_KEY=sk-your-key-here
@@ -45,24 +81,42 @@ OPENAI_KEY=sk-your-key-here
 # OPENAI_MODEL=gpt-4o-mini
 ```
 
+Or Gemini:
+
+```dotenv
+GEMINI_API_KEY=your-gemini-key
+# optional:
+# GEMINI_MODEL=gemini-3.6-flash
+# LLM_PROVIDER=gemini
+```
+
 Full details (Windows/macOS/Linux, troubleshooting): **[INSTALL.md](INSTALL.md)**.
 
 ## Configuration
 
-The client reads these environment variables (constructor arguments override them):
+The clients read these environment variables (constructor arguments override them):
 
-| Variable                      | Required | Description                                            |
-| ----------------------------- | -------- | ------------------------------------------------------ |
-| `OPENAI_KEY` / `OPENAI_API_KEY` | yes    | API key (`OPENAI_KEY` is preferred)                    |
-| `OPENAI_BASE_URL`             | no       | Custom base URL (for OpenAI-compatible endpoints)      |
-| `OPENAI_MODEL`                | no       | Model name (default: `gpt-4o-mini`)                    |
+| Variable                        | Required    | Description                                              |
+| ------------------------------- | ----------- | -------------------------------------------------------- |
+| `LLM_PROVIDER`                  | no          | Default provider: `openai` or `gemini` (default: `openai`) |
+| `OPENAI_KEY` / `OPENAI_API_KEY` | for OpenAI  | API key (`OPENAI_KEY` is preferred)                      |
+| `OPENAI_BASE_URL`               | no          | Custom base URL (for OpenAI-compatible endpoints)        |
+| `OPENAI_MODEL`                  | no          | OpenAI model name (default: `gpt-4o-mini`)               |
+| `GEMINI_API_KEY`                | for Gemini  | Gemini API key                                           |
+| `GEMINI_MODEL`                  | no          | Gemini model name (default: `gemini-3.6-flash`)          |
 
 ## Quick start
 
-Run the demo agent (single prompt):
+Run the demo agent (OpenAI by default):
 
 ```bash
 uv run python src/simple_agent_main.py "Tell me about the moon in one sentence."
+```
+
+Pick the provider with `-p` (or `LLM_PROVIDER`):
+
+```bash
+uv run python src/simple_agent_main.py -p gemini "Tell me about the moon in one sentence."
 ```
 
 Interactive chat:
@@ -99,6 +153,19 @@ asyncio.run(main())
 ```
 
 Set `stream=False` to get the whole reply in one event instead.
+
+### Pick a provider
+
+```python
+from client import ClientFactory
+
+client = ClientFactory.create_client("gemini")   # or "openai"
+# or read LLM_PROVIDER from the environment:
+client = ClientFactory.create_default()
+```
+
+Both clients share the same `chat_completion(messages, stream=True)` interface, so the
+agent code below does not change.
 
 ### Use the agent
 
@@ -151,7 +218,9 @@ The agent yields `AgentEvent` objects (`src/agent/event.py`):
 ```text
 src/
 ├── client/
-│   └── llmclient.py       # LLMClient — OpenAI chat client
+│   ├── llmclient.py       # LLMClient — OpenAI chat client
+│   ├── gemini.py          # GeminiLLMClient — Gemini chat client
+│   └── factory.py         # ClientFactory — pick a provider by name
 ├── agent/
 │   ├── agent.py           # Agent — streaming chat loop
 │   └── event.py           # AgentEvent / AgentEventType
@@ -169,7 +238,8 @@ Unit tests (no network):
 uv run pytest -m "not integration"
 ```
 
-Live tests (call the real API and consume tokens; skipped without `OPENAI_KEY`):
+Live tests (call the real APIs and consume tokens; each provider is skipped when its
+key is not set — `OPENAI_KEY` / `GEMINI_API_KEY`):
 
 ```bash
 uv run pytest -m integration

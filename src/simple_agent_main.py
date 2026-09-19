@@ -1,16 +1,20 @@
 """Standalone entry point for the no-tool streaming agent.
 
+One agent, either provider (OpenAI or Gemini) — chosen with -p / LLM_PROVIDER.
+
 Usage:
-    python simple_agent_main.py                       # interactive chat
-    python simple_agent_main.py "tell me about moon"  # single prompt
+    .venv\\Scripts\\python src\\simple_agent_main.py
+    .venv\\Scripts\\python src\\simple_agent_main.py "tell me about the moon"
+    .venv\\Scripts\\python src\\simple_agent_main.py -p gemini "hi"
 
 Environment:
-    OPENAI_KEY / OPENAI_API_KEY   required (OPENAI_KEY preferred)
-    OPENAI_BASE_URL               optional (e.g. OpenRouter/Groq endpoint)
-    OPENAI_MODEL                  optional (default: gpt-4o-mini)
-Example:
-    .venv\\Scripts\\python src\\simple_agent_main.py "hi"
+    LLM_PROVIDER                  default provider: openai | gemini (default: openai)
+    OPENAI_KEY / OPENAI_API_KEY   for the OpenAI client
+    OPENAI_BASE_URL / OPENAI_MODEL
+    GEMINI_API_KEY                for the Gemini client
+    GEMINI_MODEL
 """
+import argparse
 import asyncio
 import os
 import sys
@@ -19,20 +23,11 @@ from dotenv import load_dotenv
 
 from agent.agent import Agent
 from agent.event import AgentEventType
-from client.llmclient import LLMClient
+from client import ClientFactory
 
 load_dotenv()
 
 SYSTEM_PROMPT = "You are a concise, helpful assistant."
-
-
-def build_client() -> LLMClient:
-    return LLMClient(
-        api_key=os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
-        model=os.getenv("OPENAI_MODEL")
-        or os.getenv("OPENAI_DEFAULT_MODEL"),
-    )
 
 
 async def stream_reply(agent: Agent, message: str) -> None:
@@ -56,9 +51,11 @@ async def stream_reply(agent: Agent, message: str) -> None:
     print()
 
 
-async def main(prompt: str | None) -> None:
-    client = build_client()
+async def main(prompt: str | None, provider: str) -> None:
+    client = ClientFactory.create_client(provider)
     agent = Agent(client, system_prompt=SYSTEM_PROMPT)
+
+    print(f"Provider: {provider}")
 
     async with client:
         if prompt:
@@ -78,5 +75,19 @@ async def main(prompt: str | None) -> None:
             await stream_reply(agent, user_input)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="No-tool streaming agent.")
+    parser.add_argument(
+        "-p",
+        "--provider",
+        choices=["openai", "gemini"],
+        default=os.getenv("LLM_PROVIDER", "openai"),
+        help="provider to use (default: $LLM_PROVIDER or openai)",
+    )
+    parser.add_argument("prompt", nargs="?", help="optional single prompt")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else None))
+    args = parse_args()
+    asyncio.run(main(args.prompt, args.provider))

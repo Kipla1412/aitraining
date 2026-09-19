@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Provider-neutral LLM framework: OpenAI + Gemini providers/parsers emitting common StreamEvents."
 requires-python = ">=3.10"
 dependencies = [
+    "google-genai>=1.0",
     "httpx>=0.28",
     "openai==3.6.0",
     "python-dotenv>=1.0",
@@ -11,7 +12,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "google-genai>=1.0",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
